@@ -1,0 +1,283 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["prompt", "llmSourceMode"],
+  "properties": {
+    "prompt": {
+      "title": "Transformation Prompt",
+      "description": "System instructions used by the LLM to transform the upstream response body.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100000
+    },
+    "llmSourceMode": {
+      "title": "LLM Source Mode",
+      "description": "Choose whether to use an existing LLM Proxy API or configure a direct inline LLM endpoint.",
+      "type": "string",
+      "enum": ["LLM_PROXY_API", "INLINE"],
+      "default": "INLINE"
+    },
+    "llmProxyApiId": {
+      "title": "LLM Proxy API",
+      "description": "LLM Proxy API identifier used when LLM Source Mode is LLM_PROXY_API.",
+      "type": "string",
+      "maxLength": 256,
+      "gioConfig": {
+        "uiType": "llm-proxy-api-type",
+        "displayIf": {
+          "$eq": {
+            "value.llmSourceMode": "LLM_PROXY_API"
+          }
+        }
+      },
+      "x-schema-form": {
+        "hidden": [
+          {
+            "$eq": {
+              "llmSourceMode": "INLINE"
+            }
+          }
+        ]
+      }
+    },
+    "llmModel": {
+      "title": "LLM Model",
+      "description": "Model used with the selected LLM Proxy API.",
+      "type": "string",
+      "maxLength": 256,
+      "gioConfig": {
+        "uiType": "llm-proxy-model-type",
+        "uiTypeProps": {
+          "llmProxyApiField": "llmProxyApiId"
+        },
+        "displayIf": {
+          "$eq": {
+            "value.llmSourceMode": "LLM_PROXY_API"
+          }
+        }
+      },
+      "x-schema-form": {
+        "hidden": [
+          {
+            "$eq": {
+              "llmSourceMode": "INLINE"
+            }
+          }
+        ]
+      }
+    },
+    "llm": {
+      "title": "Direct LLM Endpoint",
+      "description": "Used when LLM Source Mode is INLINE.",
+      "type": "object",
+      "x-schema-form": {
+        "hidden": [
+          {
+            "$eq": {
+              "llmSourceMode": "LLM_PROXY_API"
+            }
+          }
+        ]
+      },
+      "additionalProperties": false,
+      "properties": {
+        "endpoint": {
+          "title": "Direct LLM Endpoint URL",
+          "description": "OpenAI-compatible chat completion endpoint or base URL. Example: https://api.groq.com/openai/v1/chat/completions",
+          "type": "string",
+          "format": "uri",
+          "maxLength": 4096,
+          "x-schema-form": {
+            "hidden": [
+              {
+                "$eq": {
+                  "llmSourceMode": "LLM_PROXY_API"
+                }
+              }
+            ]
+          },
+          "gioConfig": {
+            "displayIf": {
+              "$eq": {
+                "value.llmSourceMode": "INLINE"
+              }
+            }
+          }
+        },
+        "model": {
+          "title": "Direct LLM Model",
+          "description": "Model name used for direct inline calls.",
+          "type": "string",
+          "maxLength": 256,
+          "x-schema-form": {
+            "hidden": [
+              {
+                "$eq": {
+                  "llmSourceMode": "LLM_PROXY_API"
+                }
+              }
+            ]
+          },
+          "gioConfig": {
+            "displayIf": {
+              "$eq": {
+                "value.llmSourceMode": "INLINE"
+              }
+            }
+          }
+        },
+        "authType": {
+          "title": "Direct LLM Auth Type",
+          "description": "NONE: no auth header. BEARER: sends Authorization: Bearer <authValue>. HEADER: sends <authHeader>: <authValue>.",
+          "type": "string",
+          "enum": ["NONE", "BEARER", "HEADER"],
+          "default": "NONE",
+          "x-schema-form": {
+            "hidden": [
+              {
+                "$eq": {
+                  "llmSourceMode": "LLM_PROXY_API"
+                }
+              }
+            ]
+          },
+          "gioConfig": {
+            "displayIf": {
+              "$eq": {
+                "value.llmSourceMode": "INLINE"
+              }
+            }
+          }
+        },
+        "authHeader": {
+          "title": "Direct LLM Auth Header Name",
+          "description": "Header name used when Auth Type is HEADER.",
+          "type": "string",
+          "maxLength": 256,
+          "default": "Authorization",
+          "x-schema-form": {
+            "hidden": [
+              {
+                "$eq": {
+                  "llmSourceMode": "LLM_PROXY_API"
+                }
+              }
+            ]
+          },
+          "gioConfig": {
+            "displayIf": {
+              "$eq": {
+                "value.llmSourceMode": "INLINE"
+              }
+            }
+          }
+        },
+        "authValue": {
+          "title": "Direct LLM Auth Value",
+          "description": "Secret token or header value. For BEARER, enter raw token (without 'Bearer ').",
+          "type": "string",
+          "maxLength": 8192,
+          "x-schema-form": {
+            "hidden": [
+              {
+                "$eq": {
+                  "llmSourceMode": "LLM_PROXY_API"
+                }
+              }
+            ]
+          },
+          "gioConfig": {
+            "displayIf": {
+              "$eq": {
+                "value.llmSourceMode": "INLINE"
+              }
+            }
+          }
+        }
+      },
+      "gioConfig": {
+        "displayIf": {
+          "$eq": {
+            "value.llmSourceMode": "INLINE"
+          }
+        }
+      }
+    },
+    "maxResponseBodySize": {
+      "title": "Maximum Response Body Size",
+      "description": "Maximum upstream response body size (bytes) that can be transformed. 0 means unlimited.",
+      "type": "integer",
+      "minimum": 0,
+      "default": 1048576
+    },
+    "maxLlmResponseBodySize": {
+      "title": "Maximum LLM Response Body Size",
+      "description": "Maximum transformed payload size (bytes) accepted from the LLM. 0 means unlimited.",
+      "type": "integer",
+      "minimum": 0,
+      "default": 1048576
+    },
+    "llmTimeoutMs": {
+      "title": "LLM Timeout (ms)",
+      "description": "HTTP timeout for the call to the LLM endpoint.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 30000
+    },
+    "parseLlmResponseJsonInstructions": {
+      "title": "Parse LLM JSON Instructions",
+      "description": "If enabled, parse LLM output as JSON object: { headers, status_code, body }.",
+      "type": "boolean",
+      "default": false
+    },
+    "errorMode": {
+      "title": "Error Mode",
+      "description": "FAIL_OPEN passes through original response when transformation cannot be applied. FAIL_CLOSED interrupts the response flow.",
+      "type": "string",
+      "default": "FAIL_OPEN",
+      "enum": ["FAIL_OPEN", "FAIL_CLOSED"]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "llmSourceMode": {
+            "const": "LLM_PROXY_API"
+          }
+        }
+      },
+      "then": {
+        "required": ["llmProxyApiId"],
+        "properties": {
+          "llmProxyApiId": {
+            "minLength": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "llmSourceMode": {
+            "const": "INLINE"
+          }
+        }
+      },
+      "then": {
+        "required": ["llm"],
+        "properties": {
+          "llm": {
+            "required": ["endpoint"],
+            "properties": {
+              "endpoint": {
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

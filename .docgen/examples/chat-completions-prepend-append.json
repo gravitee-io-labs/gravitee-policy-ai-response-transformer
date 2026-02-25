@@ -1,0 +1,20 @@
+{
+  "name": "AI Response Transformer",
+  "description": "Transform upstream response payload using INLINE mode",
+  "enabled": true,
+  "policy": "ai-response-transformer",
+  "configuration": {
+    "prompt": "Rewrite this backend response for end users with clear sections.",
+    "llmSourceMode": "INLINE",
+    "llmModel": "gpt-4o-mini",
+    "llm": {
+      "endpoint": "https://api.openai.com/v1",
+      "authType": "BEARER",
+      "authValue": "${#secrets['OPENAI_API_KEY']}"
+    },
+    "maxResponseBodySize": 1048576,
+    "maxLlmResponseBodySize": 1048576,
+    "llmTimeoutMs": 30000,
+    "errorMode": "FAIL_OPEN"
+  }
+}

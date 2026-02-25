@@ -1,0 +1,20 @@
+{
+  "name": "AI Response Transformer",
+  "description": "Parse JSON instructions and reject invalid transformations",
+  "enabled": true,
+  "policy": "ai-response-transformer",
+  "configuration": {
+    "prompt": "Return JSON {status_code, headers, body} to normalize this response.",
+    "llmSourceMode": "INLINE",
+    "parseLlmResponseJsonInstructions": true,
+    "llm": {
+      "endpoint": "https://api.openai.com/v1",
+      "authType": "BEARER",
+      "authValue": "${#secrets['OPENAI_API_KEY']}"
+    },
+    "maxResponseBodySize": 65536,
+    "maxLlmResponseBodySize": 131072,
+    "llmTimeoutMs": 15000,
+    "errorMode": "FAIL_CLOSED"
+  }
+}

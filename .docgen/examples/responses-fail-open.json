@@ -1,0 +1,13 @@
+{
+  "name": "AI Response Transformer",
+  "description": "Use LLM Proxy endpoint-group resolution and fail open",
+  "enabled": true,
+  "policy": "ai-response-transformer",
+  "configuration": {
+    "prompt": "Summarize this response as markdown bullets and include action items.",
+    "llmSourceMode": "LLM_PROXY_API",
+    "llmProxyApiId": "llm-proxy-api-id",
+    "llmModel": "gpt-4.1-mini",
+    "errorMode": "FAIL_OPEN"
+  }
+}

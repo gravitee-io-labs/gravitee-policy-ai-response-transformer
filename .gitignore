@@ -1,0 +1,50 @@
+!.gitignore
+
+gravitee-**/target/
+.idea/
+*.iml
+.DS_Store
+.*.settings.xml
+gravitee.*.log.*/*.log
+**/.logs
+target/
+# eclipse
+.settings/
+.project
+.classpath
+/bin/
+
+# Related to UI Console and Portal
+**/.tmp/
+**/coverage/
+**/dist/
+**/dist-tsc/
+**/node_modules/
+**/npm-debug.log
+gravitee-**-webui/node/
+**/.settings
+**/report.*.json
+**/.vscode
+**/storybook-static
+**/.angular
+
+# used in makefile as working directory
+.working/
+# used in makefile for docker-compose quick setups
+docker/quick-setup/**/.data
+docker/quick-setup/**/.plugins
+docker/quick-setup/**/.license
+docker/quick-setup/**/.driver
+
+# secrets (password to artifactory)
+gpg.script.snippet.sh
+graviteebot.gpg.priv.key
+graviteebot.gpg.pub.key
+.secrets.json
+
+# Deepcode (Snyk Code) cache
+**/.dccache
+
+# local agent notes
+AGENTS.local.md
+AGENTS.md
