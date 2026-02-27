@@ -143,6 +143,60 @@ class AiResponseTransformerPolicyTest {
   }
 
   @Test
+  void shouldFallbackToOriginalBodyInFailOpenWhenTargetedOutputIsInvalidJson()
+    throws Exception {
+    AiResponseTransformerPolicyConfiguration configuration = baseConfiguration(
+      ErrorMode.FAIL_OPEN
+    );
+    configuration.setJsonTargetingEnabled(true);
+    configuration.setTargetPath("$.message");
+
+    when(endpointResolver.resolve(any(), any())).thenReturn(
+      new ResolvedEndpoint("https://llm.example.com", null, null, "gpt")
+    );
+    when(
+      llmClient.transform(any(), eq("rewrite"), eq("hello"), eq(30000))
+    ).thenReturn("plain text");
+
+    AiResponseTransformerPolicy policy = new AiResponseTransformerPolicy(
+      configuration,
+      endpointResolver,
+      llmClient
+    );
+
+    PolicyResult result = execute(policy, "{\"message\":\"hello\"}");
+
+    result.observer.assertComplete().assertNoErrors();
+    assertThat(result.transformedBody.toString()).isEqualTo(
+      "{\"message\":\"hello\"}"
+    );
+  }
+
+  @Test
+  void shouldFallbackToOriginalBodyInFailOpenWhenTargetPathIsInvalid()
+    throws Exception {
+    AiResponseTransformerPolicyConfiguration configuration = baseConfiguration(
+      ErrorMode.FAIL_OPEN
+    );
+    configuration.setJsonTargetingEnabled(true);
+    configuration.setTargetPath("message");
+
+    AiResponseTransformerPolicy policy = new AiResponseTransformerPolicy(
+      configuration,
+      endpointResolver,
+      llmClient
+    );
+
+    PolicyResult result = execute(policy, "{\"message\":\"hello\"}");
+
+    result.observer.assertComplete().assertNoErrors();
+    assertThat(result.transformedBody.toString()).isEqualTo(
+      "{\"message\":\"hello\"}"
+    );
+    verify(llmClient, never()).transform(any(), any(), any(), anyInt());
+  }
+
+  @Test
   void shouldFallbackToOriginalBodyInFailOpenWhenLlmCallFails()
     throws Exception {
     AiResponseTransformerPolicyConfiguration configuration = baseConfiguration(

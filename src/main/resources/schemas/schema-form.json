@@ -204,6 +204,12 @@
         }
       }
     },
+    "useOpenAiJsonResponseFormat": {
+      "title": "Use OpenAI JSON response format",
+      "description": "Adds response_format: { type: 'json_object' }. Guaranteed only for OpenAI-compatible backends.",
+      "type": "boolean",
+      "default": false
+    },
     "maxResponseBodySize": {
       "title": "Maximum Response Body Size",
       "description": "Maximum upstream response body size (bytes) that can be transformed. 0 means unlimited.",
@@ -230,6 +236,80 @@
       "description": "If enabled, parse LLM output as JSON object: { headers, status_code, body }.",
       "type": "boolean",
       "default": false
+    },
+    "jsonTargetingEnabled": {
+      "title": "Enable JSON targeting",
+      "description": "When enabled, only the selected JSON path is transformed and reinjected.",
+      "type": "boolean",
+      "default": false
+    },
+    "targetPath": {
+      "title": "Target path (JsonPath)",
+      "description": "JSON path to value sent to LLM. Examples: $, $.message, $.ticket.description",
+      "type": "string",
+      "default": "$",
+      "maxLength": 1024,
+      "x-schema-form": {
+        "hidden": [
+          {
+            "$eq": {
+              "jsonTargetingEnabled": false
+            }
+          }
+        ]
+      },
+      "gioConfig": {
+        "displayIf": {
+          "$eq": {
+            "value.jsonTargetingEnabled": true
+          }
+        }
+      }
+    },
+    "targetMode": {
+      "title": "Apply mode",
+      "description": "REPLACE_TARGET replaces selected path. MERGE_OBJECT_AT_ROOT merges LLM JSON object at root.",
+      "type": "string",
+      "default": "REPLACE_TARGET",
+      "enum": ["REPLACE_TARGET", "MERGE_OBJECT_AT_ROOT"],
+      "x-schema-form": {
+        "hidden": [
+          {
+            "$eq": {
+              "jsonTargetingEnabled": false
+            }
+          }
+        ]
+      },
+      "gioConfig": {
+        "displayIf": {
+          "$eq": {
+            "value.jsonTargetingEnabled": true
+          }
+        }
+      }
+    },
+    "targetRequired": {
+      "title": "Target required",
+      "description": "If enabled and target path is missing, transformation fails.",
+      "type": "boolean",
+      "default": false,
+      "x-schema-form": {
+        "hidden": [
+          {
+            "$eq": {
+              "jsonTargetingEnabled": false
+            }
+          }
+        ]
+      },
+      "gioConfig": {
+        "displayIf": {
+          "$eq": {
+            "value.jsonTargetingEnabled": true
+          }
+        }
+      }
     },
     "errorMode": {
       "title": "Error Mode",

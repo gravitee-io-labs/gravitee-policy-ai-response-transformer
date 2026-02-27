@@ -15,6 +15,9 @@
  */
 package io.gravitee.policy.ai.responsetransformer;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.gravitee.common.http.HttpStatusCode;
 import io.gravitee.el.TemplateEngine;
 import io.gravitee.gateway.api.buffer.Buffer;
@@ -23,6 +26,7 @@ import io.gravitee.gateway.reactive.api.ExecutionWarn;
 import io.gravitee.gateway.reactive.api.context.http.HttpPlainExecutionContext;
 import io.gravitee.gateway.reactive.api.policy.http.HttpPolicy;
 import io.gravitee.policy.ai.responsetransformer.configuration.AiResponseTransformerPolicyConfiguration;
+import io.gravitee.policy.ai.responsetransformer.configuration.AiResponseTransformerPolicyConfiguration.TargetMode;
 import io.gravitee.policy.ai.responsetransformer.configuration.ErrorMode;
 import io.gravitee.policy.ai.responsetransformer.llm.EndpointGroupResolver;
 import io.gravitee.policy.ai.responsetransformer.llm.ResolvedEndpoint;
@@ -31,6 +35,7 @@ import io.gravitee.policy.api.annotations.OnResponse;
 import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Maybe;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,6 +53,8 @@ public class AiResponseTransformerPolicy implements HttpPolicy {
     "AI_RESPONSE_TRANSFORMER_BAD_REQUEST";
   private static final String TEMPLATE_MARKER_OPEN = "{#";
   private static final String TEMPLATE_MARKER_OPEN_ALT = "${";
+
+  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
   private static final Logger LOGGER = LoggerFactory.getLogger(
     AiResponseTransformerPolicy.class
@@ -126,6 +133,12 @@ public class AiResponseTransformerPolicy implements HttpPolicy {
         return originalBody;
       }
 
+      String originalPayload = originalBody.toString();
+      TargetingContext targeting = resolveTargeting(ctx, originalPayload);
+      if (targeting.skipTransformation()) {
+        return originalBody;
+      }
+
       ResolvedEndpoint endpoint = endpointResolver.resolve(ctx, configuration);
       if (endpoint == null) {
         handleUntransformable(ctx, "No LLM endpoint could be resolved.");
@@ -135,12 +148,20 @@ public class AiResponseTransformerPolicy implements HttpPolicy {
       String prompt = renderTemplate(ctx, configuration.getPrompt());
       String transformedBody;
       try {
-        transformedBody = llmClient.transform(
-          endpoint,
-          prompt,
-          originalBody.toString(),
-          configuration.getLlmTimeoutMs()
-        );
+        transformedBody = configuration.isUseOpenAiJsonResponseFormat()
+          ? llmClient.transform(
+            endpoint,
+            prompt,
+            targeting.inputForLlm(),
+            configuration.getLlmTimeoutMs(),
+            true
+          )
+          : llmClient.transform(
+            endpoint,
+            prompt,
+            targeting.inputForLlm(),
+            configuration.getLlmTimeoutMs()
+          );
       } catch (Exception e) {
         handleUntransformable(
           ctx,
@@ -157,15 +178,9 @@ public class AiResponseTransformerPolicy implements HttpPolicy {
         return originalBody;
       }
 
-      String finalBody = transformedBody;
-      if (configuration.isParseLlmResponseJsonInstructions()) {
-        finalBody = jsonInstructionsApplier.applyIfPresent(
-          ctx,
-          transformedBody
-        );
-      }
-
-      byte[] transformedBytes = finalBody.getBytes(StandardCharsets.UTF_8);
+      byte[] transformedBytes = transformedBody.getBytes(
+        StandardCharsets.UTF_8
+      );
       int maxLlmResponseBodySize = configuration.getMaxLlmResponseBodySize();
       if (
         maxLlmResponseBodySize > 0 &&
@@ -178,11 +193,181 @@ public class AiResponseTransformerPolicy implements HttpPolicy {
         return originalBody;
       }
 
+      String finalBody;
+      try {
+        finalBody = targeting.targetingEnabled()
+          ? applyTargeting(targeting, transformedBody)
+          : transformedBody;
+      } catch (TransformationFailureException e) {
+        handleUntransformable(ctx, e.getMessage());
+        return originalBody;
+      }
+
+      if (configuration.isParseLlmResponseJsonInstructions()) {
+        finalBody = jsonInstructionsApplier.applyIfPresent(ctx, finalBody);
+      }
+
       transformed = true;
       return Buffer.buffer(finalBody);
     } finally {
       recordMetrics(ctx, startedAt, transformed);
     }
+  }
+
+  private TargetingContext resolveTargeting(
+    HttpPlainExecutionContext ctx,
+    String originalPayload
+  ) {
+    String targetPath = sanitizeTargetPath(configuration.getTargetPath());
+    TargetMode targetMode = resolveTargetMode();
+    boolean targetingEnabled = configuration.isJsonTargetingEnabled();
+
+    if (!targetingEnabled) {
+      return TargetingContext.noTargeting(originalPayload);
+    }
+
+    JsonNode root;
+    try {
+      root = OBJECT_MAPPER.readTree(originalPayload);
+    } catch (Exception e) {
+      handleUntransformable(
+        ctx,
+        "Targeted transformation requires a valid JSON payload."
+      );
+      return TargetingContext.skip();
+    }
+
+    List<String> segments;
+    try {
+      segments = parsePath(targetPath);
+    } catch (TransformationFailureException e) {
+      handleUntransformable(ctx, e.getMessage());
+      return TargetingContext.skip();
+    }
+
+    JsonNode selected = selectNode(root, segments);
+
+    if (selected == null) {
+      if (configuration.isTargetRequired()) {
+        handleUntransformable(
+          ctx,
+          "Target path '" + targetPath + "' was not found in JSON payload."
+        );
+      }
+      return TargetingContext.skip();
+    }
+
+    String llmInput = selected.isTextual()
+      ? selected.asText()
+      : selected.toString();
+    return TargetingContext.targeting(root, segments, targetMode, llmInput);
+  }
+
+  private String applyTargeting(
+    TargetingContext targeting,
+    String transformedBody
+  ) throws Exception {
+    JsonNode transformedNode;
+    try {
+      transformedNode = OBJECT_MAPPER.readTree(transformedBody);
+    } catch (Exception e) {
+      throw new TransformationFailureException(
+        "LLM output is not valid JSON for targeted transformation."
+      );
+    }
+
+    if (targeting.targetMode() == TargetMode.MERGE_OBJECT_AT_ROOT) {
+      if (!targeting.rootNode().isObject() || !transformedNode.isObject()) {
+        throw new TransformationFailureException(
+          "MERGE_OBJECT_AT_ROOT requires both original root and LLM output to be JSON objects."
+        );
+      }
+      ObjectNode merged = ((ObjectNode) targeting.rootNode()).deepCopy();
+      merged.setAll((ObjectNode) transformedNode);
+      return OBJECT_MAPPER.writeValueAsString(merged);
+    }
+
+    if (targeting.pathSegments().isEmpty()) {
+      return OBJECT_MAPPER.writeValueAsString(transformedNode);
+    }
+
+    JsonNode replaced = replaceAtPath(
+      targeting.rootNode(),
+      targeting.pathSegments(),
+      transformedNode
+    );
+    return OBJECT_MAPPER.writeValueAsString(replaced);
+  }
+
+  private JsonNode replaceAtPath(
+    JsonNode root,
+    List<String> segments,
+    JsonNode replacement
+  ) {
+    JsonNode copy = root.deepCopy();
+    JsonNode cursor = copy;
+    for (int i = 0; i < segments.size() - 1; i++) {
+      cursor = cursor.get(segments.get(i));
+      if (cursor == null || !cursor.isObject()) {
+        throw new TransformationFailureException(
+          "Target path points to an invalid parent node."
+        );
+      }
+    }
+
+    if (!cursor.isObject()) {
+      throw new TransformationFailureException(
+        "Target path points to a non-object parent node."
+      );
+    }
+
+    ((ObjectNode) cursor).set(segments.get(segments.size() - 1), replacement);
+    return copy;
+  }
+
+  private JsonNode selectNode(JsonNode root, List<String> segments) {
+    JsonNode cursor = root;
+    for (String segment : segments) {
+      if (cursor == null || !cursor.isObject()) {
+        return null;
+      }
+      cursor = cursor.get(segment);
+    }
+    return cursor;
+  }
+
+  private List<String> parsePath(String targetPath) {
+    if ("$".equals(targetPath)) {
+      return List.of();
+    }
+
+    if (!targetPath.startsWith("$.")) {
+      throw new TransformationFailureException(
+        "Unsupported target path format. Expected '$' or '$.field[.subField]'."
+      );
+    }
+
+    String withoutPrefix = targetPath.substring(2);
+    if (withoutPrefix.isBlank()) {
+      throw new TransformationFailureException("Target path cannot be empty.");
+    }
+    if (withoutPrefix.contains("[") || withoutPrefix.contains("]")) {
+      throw new TransformationFailureException(
+        "Array targeting is not supported in this version."
+      );
+    }
+
+    return List.of(withoutPrefix.split("\\."));
+  }
+
+  private String sanitizeTargetPath(String targetPath) {
+    return targetPath == null || targetPath.isBlank() ? "$" : targetPath.trim();
+  }
+
+  private TargetMode resolveTargetMode() {
+    return configuration.getTargetMode() == null
+      ? TargetMode.REPLACE_TARGET
+      : configuration.getTargetMode();
   }
 
   private void recordMetrics(
@@ -242,6 +427,53 @@ public class AiResponseTransformerPolicy implements HttpPolicy {
     return configuration.getErrorMode() == null
       ? ErrorMode.FAIL_OPEN
       : configuration.getErrorMode();
+  }
+
+  private record TargetingContext(
+    JsonNode rootNode,
+    List<String> pathSegments,
+    TargetMode targetMode,
+    String inputForLlm,
+    boolean targetingEnabled,
+    boolean skipTransformation
+  ) {
+    static TargetingContext noTargeting(String originalPayload) {
+      return new TargetingContext(
+        null,
+        List.of(),
+        TargetMode.REPLACE_TARGET,
+        originalPayload,
+        false,
+        false
+      );
+    }
+
+    static TargetingContext targeting(
+      JsonNode rootNode,
+      List<String> pathSegments,
+      TargetMode targetMode,
+      String inputForLlm
+    ) {
+      return new TargetingContext(
+        rootNode,
+        pathSegments,
+        targetMode,
+        inputForLlm,
+        true,
+        false
+      );
+    }
+
+    static TargetingContext skip() {
+      return new TargetingContext(
+        null,
+        List.of(),
+        TargetMode.REPLACE_TARGET,
+        null,
+        false,
+        true
+      );
+    }
   }
 
   private static final class TransformationFailureException

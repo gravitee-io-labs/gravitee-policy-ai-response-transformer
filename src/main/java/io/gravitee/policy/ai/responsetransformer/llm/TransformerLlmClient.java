@@ -51,6 +51,16 @@ public class TransformerLlmClient {
     String userContent,
     int timeoutMs
   ) throws Exception {
+    return transform(endpoint, systemPrompt, userContent, timeoutMs, false);
+  }
+
+  public String transform(
+    ResolvedEndpoint endpoint,
+    String systemPrompt,
+    String userContent,
+    int timeoutMs,
+    boolean useOpenAiJsonResponseFormat
+  ) throws Exception {
     if (
       endpoint == null ||
       endpoint.target() == null ||
@@ -64,7 +74,8 @@ public class TransformerLlmClient {
     ObjectNode payload = buildChatCompletionPayload(
       endpoint.model(),
       systemPrompt,
-      userContent
+      userContent,
+      useOpenAiJsonResponseFormat
     );
 
     HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
@@ -105,6 +116,15 @@ public class TransformerLlmClient {
     String systemPrompt,
     String userContent
   ) {
+    return buildChatCompletionPayload(model, systemPrompt, userContent, false);
+  }
+
+  public ObjectNode buildChatCompletionPayload(
+    String model,
+    String systemPrompt,
+    String userContent,
+    boolean useOpenAiJsonResponseFormat
+  ) {
     ObjectNode payload = OBJECT_MAPPER.createObjectNode();
 
     if (model != null && !model.isBlank()) {
@@ -116,6 +136,11 @@ public class TransformerLlmClient {
       messages.add(createMessage("system", systemPrompt));
     }
     messages.add(createMessage("user", userContent == null ? "" : userContent));
+
+    if (useOpenAiJsonResponseFormat) {
+      ObjectNode responseFormat = payload.putObject("response_format");
+      responseFormat.put("type", "json_object");
+    }
 
     return payload;
   }
